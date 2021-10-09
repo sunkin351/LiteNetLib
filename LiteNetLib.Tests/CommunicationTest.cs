@@ -320,7 +320,7 @@ namespace LiteNetLib.Tests
             };
             ManagerStack.ClientListener(1).PeerDisconnectedEvent += (peer, info) =>
             {
-                Assert.AreEqual(true, info.Reason == DisconnectReason.ConnectionRejected);
+                Assert.AreEqual(DisconnectReason.ConnectionRejected, info.Reason);
                 Assert.AreEqual("reject_test", Encoding.UTF8.GetString(info.AdditionalData.GetRemainingBytes()));
                 rejectReceived = true;
             };
