@@ -522,7 +522,7 @@ namespace LiteNetLib
             SocketError socketErrorCode,
             NetPacket eventData)
         {
-            DisconnectPeer(peer, reason, socketErrorCode, true, null, 0, 0, eventData);
+            DisconnectPeer(peer, reason, socketErrorCode, true, default(ReadOnlySpan<byte>), eventData);
         }
 
         private void DisconnectPeer(
@@ -535,10 +535,21 @@ namespace LiteNetLib
             int count,
             NetPacket eventData)
         {
-            var shutdownResult = peer.Shutdown(data, start, count, force);
+            DisconnectPeer(peer, reason, socketErrorCode, force, data.AsSpan(start, count), eventData);
+        }
+
+        private void DisconnectPeer(
+            NetPeer peer,
+            DisconnectReason reason,
+            SocketError socketErrorCode,
+            bool force,
+            ReadOnlySpan<byte> data,
+            NetPacket eventData)
+        {
+            var shutdownResult = peer.Shutdown(data, force);
             if (shutdownResult == ShutdownResult.None)
                 return;
-            if(shutdownResult == ShutdownResult.WasConnected)
+            if (shutdownResult == ShutdownResult.WasConnected)
                 Interlocked.Decrement(ref _connectedPeersCount);
             Thread.MemoryBarrier();
             CreateEvent(
@@ -1525,6 +1536,11 @@ namespace LiteNetLib
         /// <exception cref="InvalidOperationException">Manager is not running. Call <see cref="Start()"/></exception>
         public NetPeer Connect(string address, int port, NetDataWriter connectionData)
         {
+            return Connect(address, port, connectionData.DataSpan);
+        }
+
+        public NetPeer Connect(string address, int port, ReadOnlySpan<byte> connectionData)
+        {
             IPEndPoint ep;
             try
             {
@@ -1557,12 +1573,17 @@ namespace LiteNetLib
         /// <param name="connectionData">Additional data for remote peer</param>
         /// <returns>New NetPeer if new connection, Old NetPeer if already connected, null peer if there is ConnectionRequest awaiting</returns>
         /// <exception cref="InvalidOperationException">Manager is not running. Call <see cref="Start()"/></exception>
-        public NetPeer Connect(IPEndPoint target, NetDataWriter connectionData)
+        public NetPeer? Connect(IPEndPoint target, NetDataWriter connectionData)
+        {
+            return Connect(target, connectionData.DataSpan);
+        }
+
+        public NetPeer? Connect(IPEndPoint target, ReadOnlySpan<byte> connectionData)
         {
             if (!_socket.IsRunning)
                 throw new InvalidOperationException("Client is not running");
 
-            lock(_requestsDict)
+            lock (_requestsDict)
             {
                 if (_requestsDict.ContainsKey(target))
                     return null;
@@ -1682,7 +1703,7 @@ namespace LiteNetLib
         /// </summary>
         public void DisconnectAll()
         {
-            DisconnectAll(null, 0, 0);
+            DisconnectAll(default(ReadOnlySpan<byte>));
         }
 
         /// <summary>
@@ -1692,6 +1713,11 @@ namespace LiteNetLib
         /// <param name="start">Data start</param>
         /// <param name="count">Data count</param>
         public void DisconnectAll(byte[] data, int start, int count)
+        {
+            DisconnectAll(data.AsSpan(start, count));
+        }
+
+        public void DisconnectAll(ReadOnlySpan<byte> data)
         {
             //Send disconnect packets
             _peersLock.EnterReadLock();
@@ -1703,8 +1729,6 @@ namespace LiteNetLib
                     0,
                     false,
                     data,
-                    start,
-                    count,
                     null);
             }
             _peersLock.ExitReadLock();
@@ -1725,7 +1749,7 @@ namespace LiteNetLib
         /// <param name="peer">peer to disconnect</param>
         public void DisconnectPeer(NetPeer peer)
         {
-            DisconnectPeer(peer, null, 0, 0);
+            DisconnectPeer(peer, default(ReadOnlySpan<byte>));
         }
 
         /// <summary>
@@ -1735,7 +1759,7 @@ namespace LiteNetLib
         /// <param name="data">additional data</param>
         public void DisconnectPeer(NetPeer peer, byte[] data)
         {
-            DisconnectPeer(peer, data, 0, data.Length);
+            DisconnectPeer(peer, data.AsSpan());
         }
 
         /// <summary>
@@ -1745,7 +1769,7 @@ namespace LiteNetLib
         /// <param name="writer">additional data</param>
         public void DisconnectPeer(NetPeer peer, NetDataWriter writer)
         {
-            DisconnectPeer(peer, writer.Data, 0, writer.Length);
+            DisconnectPeer(peer, writer.DataSpan);
         }
 
         /// <summary>
@@ -1757,14 +1781,17 @@ namespace LiteNetLib
         /// <param name="count">data length</param>
         public void DisconnectPeer(NetPeer peer, byte[] data, int start, int count)
         {
+            DisconnectPeer(peer, data.AsSpan(start, count));
+        }
+
+        public void DisconnectPeer(NetPeer peer, ReadOnlySpan<byte> data)
+        {
             DisconnectPeer(
                 peer,
                 DisconnectReason.DisconnectPeerCalled,
                 0,
                 false,
                 data,
-                start,
-                count,
                 null);
         }
 

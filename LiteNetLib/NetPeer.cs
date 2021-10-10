@@ -274,6 +274,11 @@ namespace LiteNetLib
 
         //"Connect to" constructor
         internal NetPeer(NetManager netManager, IPEndPoint remoteEndPoint, int id, byte connectNum, NetDataWriter connectData)
+            : this(netManager, remoteEndPoint, id, connectNum, connectData.DataSpan)
+        {
+        }
+
+        internal NetPeer(NetManager netManager, IPEndPoint remoteEndPoint, int id, byte connectNum, ReadOnlySpan<byte> connectData)
             : this(netManager, remoteEndPoint, id)
         {
             _connectTime = DateTime.UtcNow.Ticks;
@@ -718,6 +723,10 @@ namespace LiteNetLib
             }
         }
 #endif
+        public void Disconnect(ReadOnlySpan<byte> data)
+        {
+            NetManager.DisconnectPeer(this, data);
+        }
 
         public void Disconnect(byte[] data)
         {
@@ -760,6 +769,11 @@ namespace LiteNetLib
 
         internal ShutdownResult Shutdown(byte[] data, int start, int length, bool force)
         {
+            return Shutdown(data.AsSpan(start, length), force);
+        }
+
+        internal ShutdownResult Shutdown(ReadOnlySpan<byte> data, bool force)
+        {
             lock (_shutdownLock)
             {
                 //trying to shutdown already disconnected
@@ -784,16 +798,16 @@ namespace LiteNetLib
                 Interlocked.Exchange(ref _timeSinceLastPacket, 0);
 
                 //send shutdown packet
-                _shutdownPacket = new NetPacket(PacketProperty.Disconnect, length) {ConnectionNumber = _connectNum};
+                _shutdownPacket = new NetPacket(PacketProperty.Disconnect, data.Length) {ConnectionNumber = _connectNum};
                 FastBitConverter.GetBytes(_shutdownPacket.RawData, 1, _connectTime);
                 if (_shutdownPacket.Size >= _mtu)
                 {
                     //Drop additional data
                     NetDebug.WriteError("[Peer] Disconnect additional data size more than MTU - 8!");
                 }
-                else if (data != null && length > 0)
+                else if (data != null && data.Length > 0)
                 {
-                    Buffer.BlockCopy(data, start, _shutdownPacket.RawData, 9, length);
+                    data.CopyTo(_shutdownPacket.RawData.AsSpan(9));
                 }
                 _connectionState = ConnectionState.ShutdownRequested;
                 NetDebug.Write("[Peer] Send disconnect");
