@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Net;
 using System.Text;
+using System.Runtime.InteropServices;
 
 namespace LiteNetLib.Utils
 {
@@ -69,6 +72,16 @@ namespace LiteNetLib.Utils
             SetSource(source, offset, maxSize);
         }
 
+        protected ReadOnlySpan<byte> UnreadData
+        {
+            get => _data.AsSpan(_position, _dataSize - _position);
+        }
+
+        protected void Advance(int length)
+        {
+            _position += length;
+        }
+
         #region GetMethods
         public IPEndPoint GetNetEndPoint()
         {
@@ -91,186 +104,159 @@ namespace LiteNetLib.Utils
             return b;
         }
 
+        private unsafe T[] GetArray<T>() where T: unmanaged
+        {
+            EnsureEndianess();
+
+            var dataSpan = UnreadData;
+
+            ushort size = BinaryPrimitives.ReadUInt16LittleEndian(dataSpan);
+
+            var arrSpan = MemoryMarshal.Cast<byte, T>(dataSpan.Slice(sizeof(ushort), size * sizeof(T)));
+
+            Advance(sizeof(ushort) + size * sizeof(T));
+
+            return arrSpan.ToArray();
+        }
+
         public bool[] GetBoolArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new bool[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size);
-            _position += size;
-            return arr;
+            return GetArray<bool>();
         }
 
         public ushort[] GetUShortArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new ushort[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 2);
-            _position += size * 2;
-            return arr;
+            return GetArray<ushort>();
         }
 
         public short[] GetShortArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new short[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 2);
-            _position += size * 2;
-            return arr;
+            return GetArray<short>();
         }
 
         public long[] GetLongArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new long[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 8);
-            _position += size * 8;
-            return arr;
+            return GetArray<long>();
         }
 
         public ulong[] GetULongArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new ulong[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 8);
-            _position += size * 8;
-            return arr;
+            return GetArray<ulong>();
         }
 
         public int[] GetIntArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new int[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 4);
-            _position += size * 4;
-            return arr;
+            return GetArray<int>();
         }
 
         public uint[] GetUIntArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new uint[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 4);
-            _position += size * 4;
-            return arr;
+            return GetArray<uint>();
         }
 
         public float[] GetFloatArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new float[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 4);
-            _position += size * 4;
-            return arr;
+            return GetArray<float>();
         }
 
         public double[] GetDoubleArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new double[size];
-            Buffer.BlockCopy(_data, _position, arr, 0, size * 8);
-            _position += size * 8;
-            return arr;
+            return GetArray<double>();
         }
 
         public string[] GetStringArray()
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new string[size];
-            for (int i = 0; i < size; i++)
+            ushort len = GetUShort();
+
+            var arr = new string[len];
+
+            for (int i = 0; i < len; i++)
             {
                 arr[i] = GetString();
             }
+
             return arr;
         }
 
         public string[] GetStringArray(int maxStringLength)
         {
-            ushort size = BitConverter.ToUInt16(_data, _position);
-            _position += 2;
-            var arr = new string[size];
-            for (int i = 0; i < size; i++)
+            ushort len = GetUShort();
+
+            var arr = new string[len];
+
+            for (int i = 0; i < len; i++)
             {
                 arr[i] = GetString(maxStringLength);
             }
+
             return arr;
         }
 
         public bool GetBool()
         {
-            bool res = _data[_position] > 0;
+            bool res = _data[_position] != 0;
             _position += 1;
             return res;
         }
 
         public char GetChar()
         {
-            char result = BitConverter.ToChar(_data, _position);
-            _position += 2;
-            return result;
+            return (char)GetUShort();
         }
 
         public ushort GetUShort()
         {
-            ushort result = BitConverter.ToUInt16(_data, _position);
+            ushort result = BinaryPrimitives.ReadUInt16LittleEndian(UnreadData);
             _position += 2;
             return result;
         }
 
         public short GetShort()
         {
-            short result = BitConverter.ToInt16(_data, _position);
+            short result = BinaryPrimitives.ReadInt16LittleEndian(UnreadData);
             _position += 2;
             return result;
         }
 
         public long GetLong()
         {
-            long result = BitConverter.ToInt64(_data, _position);
+            long result = BinaryPrimitives.ReadInt64LittleEndian(UnreadData);
             _position += 8;
             return result;
         }
 
         public ulong GetULong()
         {
-            ulong result = BitConverter.ToUInt64(_data, _position);
+            ulong result = BinaryPrimitives.ReadUInt64LittleEndian(UnreadData);
             _position += 8;
             return result;
         }
 
         public int GetInt()
         {
-            int result = BitConverter.ToInt32(_data, _position);
+            int result = BinaryPrimitives.ReadInt32LittleEndian(UnreadData);
             _position += 4;
             return result;
         }
 
         public uint GetUInt()
         {
-            uint result = BitConverter.ToUInt32(_data, _position);
+            uint result = BinaryPrimitives.ReadUInt32LittleEndian(UnreadData);
             _position += 4;
             return result;
         }
 
-        public float GetFloat()
+        public unsafe float GetFloat()
         {
-            float result = BitConverter.ToSingle(_data, _position);
+            int tmp = BinaryPrimitives.ReadInt32LittleEndian(UnreadData);
+
             _position += 4;
-            return result;
+            return *(float*)&tmp;
         }
 
         public double GetDouble()
         {
-            double result = BitConverter.ToDouble(_data, _position);
+            double result = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(UnreadData));
             _position += 8;
             return result;
         }
@@ -278,7 +264,7 @@ namespace LiteNetLib.Utils
         public string GetString(int maxLength)
         {
             int bytesCount = GetInt();
-            if (bytesCount <= 0 || bytesCount > maxLength*2)
+            if (bytesCount <= 0 || bytesCount > maxLength * 2)
             {
                 return string.Empty;
             }
@@ -323,30 +309,34 @@ namespace LiteNetLib.Utils
 
         public byte[] GetRemainingBytes()
         {
-            byte[] outgoingData = new byte[AvailableBytes];
-            Buffer.BlockCopy(_data, _position, outgoingData, 0, AvailableBytes);
+            byte[] outgoingData = UnreadData.ToArray();
             _position = _data.Length;
             return outgoingData;
         }
 
         public void GetBytes(byte[] destination, int start, int count)
         {
-            Buffer.BlockCopy(_data, _position, destination, start, count);
-            _position += count;
+            GetBytes(destination.AsSpan(start, count));
         }
 
         public void GetBytes(byte[] destination, int count)
         {
-            Buffer.BlockCopy(_data, _position, destination, 0, count);
-            _position += count;
+            GetBytes(destination.AsSpan(0, count));
+        }
+
+        public void GetBytes(Span<byte> span)
+        {
+            _data.AsSpan(_position, span.Length).CopyTo(span);
+            _position += span.Length;
         }
 
         public sbyte[] GetSBytesWithLength()
         {
             int length = GetInt();
             sbyte[] outgoingData = new sbyte[length];
-            Buffer.BlockCopy(_data, _position, outgoingData, 0, length);
-            _position += length;
+
+            GetBytes(MemoryMarshal.AsBytes((Span<sbyte>)outgoingData));
+
             return outgoingData;
         }
 
@@ -354,9 +344,32 @@ namespace LiteNetLib.Utils
         {
             int length = GetInt();
             byte[] outgoingData = new byte[length];
-            Buffer.BlockCopy(_data, _position, outgoingData, 0, length);
-            _position += length;
+
+            GetBytes(outgoingData);
+
             return outgoingData;
+        }
+
+        public ReadOnlySpan<byte> GetBytesWithLengthAsSpan()
+        {
+            int length = GetInt();
+
+            var span = _data.AsSpan(_position, length);
+
+            Advance(length);
+
+            return span;
+        }
+
+        public ReadOnlySpan<sbyte> GetSBytesWithLengthAsSpan()
+        {
+            int length = GetInt();
+
+            var span = _data.AsSpan(_position, length);
+
+            Advance(length);
+
+            return MemoryMarshal.Cast<byte, sbyte>(span);
         }
         #endregion
 
@@ -374,52 +387,53 @@ namespace LiteNetLib.Utils
 
         public bool PeekBool()
         {
-            return _data[_position] > 0;
+            return _data[_position] != 0;
         }
 
         public char PeekChar()
         {
-            return BitConverter.ToChar(_data, _position);
+            return (char)BinaryPrimitives.ReadUInt16BigEndian(UnreadData);
         }
 
         public ushort PeekUShort()
         {
-            return BitConverter.ToUInt16(_data, _position);
+            return BinaryPrimitives.ReadUInt16BigEndian(UnreadData);
         }
 
         public short PeekShort()
         {
-            return BitConverter.ToInt16(_data, _position);
+            return BinaryPrimitives.ReadInt16LittleEndian(UnreadData);
         }
 
         public long PeekLong()
         {
-            return BitConverter.ToInt64(_data, _position);
+            return BinaryPrimitives.ReadInt64LittleEndian(UnreadData);
         }
 
         public ulong PeekULong()
         {
-            return BitConverter.ToUInt64(_data, _position);
+            return BinaryPrimitives.ReadUInt64LittleEndian(UnreadData);
         }
 
         public int PeekInt()
         {
-            return BitConverter.ToInt32(_data, _position);
+            return BinaryPrimitives.ReadInt32LittleEndian(UnreadData);
         }
 
         public uint PeekUInt()
         {
-            return BitConverter.ToUInt32(_data, _position);
+            return BinaryPrimitives.ReadUInt32LittleEndian(UnreadData);
         }
 
-        public float PeekFloat()
+        public unsafe float PeekFloat()
         {
-            return BitConverter.ToSingle(_data, _position);
+            int tmp = BinaryPrimitives.ReadInt32LittleEndian(UnreadData);
+            return *(float*)&tmp;
         }
 
         public double PeekDouble()
         {
-            return BitConverter.ToDouble(_data, _position);
+            return BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(UnreadData));
         }
 
         public string PeekString(int maxLength)
@@ -644,6 +658,14 @@ namespace LiteNetLib.Utils
             _position = 0;
             _dataSize = 0;
             _data = null;
+        }
+
+        private static void EnsureEndianess()
+        {
+            if (!BitConverter.IsLittleEndian)
+            {
+                throw new PlatformNotSupportedException();
+            }
         }
     }
 }

@@ -1,10 +1,16 @@
 ﻿using System;
+using System.Buffers;
+using System.Buffers.Binary;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 namespace LiteNetLib.Utils
 {
+    [DebuggerDisplay("{Length} bytes written")]
     public class NetDataWriter
     {
         protected byte[] _data;
@@ -15,6 +21,8 @@ namespace LiteNetLib.Utils
         public int Capacity => _data.Length;
         public byte[] Data => _data;
         public int Length => _position;
+
+        public ReadOnlySpan<byte> DataSpan => _data.AsSpan(0, _position);
 
         public NetDataWriter() : this(true, InitialSize)
         {
@@ -78,10 +86,14 @@ namespace LiteNetLib.Utils
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void Resize(int newSize)
         {
-            int len = _data.Length;
-            while (len < newSize)
-                len *= 2;
-            Array.Resize(ref _data, len);
+#if NETCOREAPP3_1_OR_GREATER
+            int newLen = 1 << (sizeof(uint) * 8 - BitOperations.LeadingZeroCount((uint)newSize - 1));
+#else
+            int newLen = _data.Length;
+            while (newLen < newSize)
+                newLen *= 2;
+#endif
+            Array.Resize(ref _data, newLen);
         }
 
         public void Reset(int size)
@@ -114,11 +126,14 @@ namespace LiteNetLib.Utils
             return prevPosition;
         }
 
-        public void Put(float value)
+        public unsafe void Put(float value)
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 4);
-            FastBitConverter.GetBytes(_data, _position, value);
+
+            int bits = *(int*)&value;
+
+            BinaryPrimitives.WriteInt32LittleEndian(_data.AsSpan(_position), bits);
             _position += 4;
         }
 
@@ -126,7 +141,10 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 8);
-            FastBitConverter.GetBytes(_data, _position, value);
+
+            long bits = BitConverter.DoubleToInt64Bits(value);
+
+            BinaryPrimitives.WriteInt64LittleEndian(_data.AsSpan(_position), bits);
             _position += 8;
         }
 
@@ -134,7 +152,7 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 8);
-            FastBitConverter.GetBytes(_data, _position, value);
+            BinaryPrimitives.WriteInt64LittleEndian(_data.AsSpan(_position), value);
             _position += 8;
         }
 
@@ -142,7 +160,7 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 8);
-            FastBitConverter.GetBytes(_data, _position, value);
+            BinaryPrimitives.WriteUInt64LittleEndian(_data.AsSpan(_position), value);
             _position += 8;
         }
 
@@ -150,7 +168,7 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 4);
-            FastBitConverter.GetBytes(_data, _position, value);
+            BinaryPrimitives.WriteInt32LittleEndian(_data.AsSpan(_position), value);
             _position += 4;
         }
 
@@ -158,23 +176,20 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 4);
-            FastBitConverter.GetBytes(_data, _position, value);
+            BinaryPrimitives.WriteUInt32LittleEndian(_data.AsSpan(_position), value);
             _position += 4;
         }
 
         public void Put(char value)
         {
-            if (_autoResize)
-                ResizeIfNeed(_position + 2);
-            FastBitConverter.GetBytes(_data, _position, value);
-            _position += 2;
+            Put((ushort)value);
         }
 
         public void Put(ushort value)
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 2);
-            FastBitConverter.GetBytes(_data, _position, value);
+            BinaryPrimitives.WriteUInt16LittleEndian(_data.AsSpan(_position), value);
             _position += 2;
         }
 
@@ -182,7 +197,7 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 2);
-            FastBitConverter.GetBytes(_data, _position, value);
+            BinaryPrimitives.WriteInt16LittleEndian(_data.AsSpan(_position), value);
             _position += 2;
         }
 
@@ -190,7 +205,7 @@ namespace LiteNetLib.Utils
         {
             if (_autoResize)
                 ResizeIfNeed(_position + 1);
-            _data[_position] = (byte)value;
+            _data[_position] = unchecked((byte)value);
             _position++;
         }
 
@@ -204,119 +219,167 @@ namespace LiteNetLib.Utils
 
         public void Put(byte[] data, int offset, int length)
         {
-            if (_autoResize)
-                ResizeIfNeed(_position + length);
-            Buffer.BlockCopy(data, offset, _data, _position, length);
-            _position += length;
+            Put(data.AsSpan(offset, length));
         }
 
         public void Put(byte[] data)
         {
+            Put(data.AsSpan());
+        }
+
+        public void Put(ReadOnlySpan<byte> data)
+        {
             if (_autoResize)
                 ResizeIfNeed(_position + data.Length);
-            Buffer.BlockCopy(data, 0, _data, _position, data.Length);
+
+            data.CopyTo(_data.AsSpan(_position));
             _position += data.Length;
+        }
+
+        public void Put(ReadOnlySequence<byte> data)
+        {
+            if (data.Length > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(data), "Sequence data too big");
+            }
+
+            if (_autoResize)
+                ResizeIfNeed(_position + checked((int)data.Length));
+
+            var dataSpan = _data.AsSpan(_position);
+
+            data.CopyTo(dataSpan);
+            _position += (int)data.Length;
         }
 
         public void PutSBytesWithLength(sbyte[] data, int offset, int length)
         {
-            if (_autoResize)
-                ResizeIfNeed(_position + length + 4);
-            FastBitConverter.GetBytes(_data, _position, length);
-            Buffer.BlockCopy(data, offset, _data, _position + 4, length);
-            _position += length + 4;
+            PutSBytesWithLength(data.AsSpan(offset, length));
         }
 
         public void PutSBytesWithLength(sbyte[] data)
         {
-            if (_autoResize)
-                ResizeIfNeed(_position + data.Length + 4);
-            FastBitConverter.GetBytes(_data, _position, data.Length);
-            Buffer.BlockCopy(data, 0, _data, _position + 4, data.Length);
-            _position += data.Length + 4;
+            PutSBytesWithLength(data.AsSpan());
+        }
+
+        public void PutSBytesWithLength(ReadOnlySpan<sbyte> data)
+        {
+            PutBytesWithLength(MemoryMarshal.AsBytes(data));
         }
 
         public void PutBytesWithLength(byte[] data, int offset, int length)
         {
-            if (_autoResize)
-                ResizeIfNeed(_position + length + 4);
-            FastBitConverter.GetBytes(_data, _position, length);
-            Buffer.BlockCopy(data, offset, _data, _position + 4, length);
-            _position += length + 4;
+            PutBytesWithLength(data.AsSpan(offset, length));
         }
 
         public void PutBytesWithLength(byte[] data)
         {
+            PutBytesWithLength(data.AsSpan());
+        }
+
+        public void PutBytesWithLength(ReadOnlySpan<byte> data)
+        {
             if (_autoResize)
-                ResizeIfNeed(_position + data.Length + 4);
-            FastBitConverter.GetBytes(_data, _position, data.Length);
-            Buffer.BlockCopy(data, 0, _data, _position + 4, data.Length);
-            _position += data.Length + 4;
+            {
+                ResizeIfNeed(_position + sizeof(int) + data.Length);
+            }
+
+            var dataSpan = _data.AsSpan(_position);
+
+            BinaryPrimitives.WriteInt32LittleEndian(dataSpan, data.Length);
+
+            data.CopyTo(dataSpan.Slice(sizeof(int)));
+
+            _position += sizeof(int) + data.Length;
         }
 
         public void Put(bool value)
         {
             if (_autoResize)
+            {
                 ResizeIfNeed(_position + 1);
+            }
+
             _data[_position] = (byte)(value ? 1 : 0);
             _position++;
         }
 
-        private void PutArray(Array arr, int sz)
+        private void PutArray<T>(T[] arr) where T: unmanaged
         {
-            ushort length = arr == null ? (ushort) 0 : (ushort)arr.Length;
-            sz *= length;
+            if (!BitConverter.IsLittleEndian)
+            {
+                throw new PlatformNotSupportedException("Big endian platforms are not supported");
+            }
+
+            if (arr is null)
+            {
+                Put((ushort)0);
+                return;
+            }
+
+            if (arr.Length > ushort.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(arr), arr, "Array length was greater than " + ushort.MaxValue);
+            }
+
+            ReadOnlySpan<byte> span = MemoryMarshal.AsBytes(arr.AsSpan());
+
             if (_autoResize)
-                ResizeIfNeed(_position + sz + 2);
-            FastBitConverter.GetBytes(_data, _position, length);
-            if (arr != null)
-                Buffer.BlockCopy(arr, 0, _data, _position + 2, sz);
-            _position += sz + 2;
+            {
+                ResizeIfNeed(_position + sizeof(ushort) + span.Length);
+            }
+
+            Span<byte> dataSpan = _data.AsSpan(_position);
+
+            BinaryPrimitives.WriteUInt16LittleEndian(dataSpan, (ushort)arr.Length);
+            span.CopyTo(dataSpan.Slice(sizeof(ushort)));
+
+            _position += sizeof(ushort) + span.Length;
         }
 
         public void PutArray(float[] value)
         {
-            PutArray(value, 4);
+            PutArray<float>(value);
         }
 
         public void PutArray(double[] value)
         {
-            PutArray(value, 8);
+            PutArray<double>(value);
         }
 
         public void PutArray(long[] value)
         {
-            PutArray(value, 8);
+            PutArray<long>(value);
         }
 
         public void PutArray(ulong[] value)
         {
-            PutArray(value, 8);
+            PutArray<ulong>(value);
         }
 
         public void PutArray(int[] value)
         {
-            PutArray(value, 4);
+            PutArray<int>(value);
         }
 
         public void PutArray(uint[] value)
         {
-            PutArray(value, 4);
+            PutArray<uint>(value);
         }
 
         public void PutArray(ushort[] value)
         {
-            PutArray(value, 2);
+            PutArray<ushort>(value);
         }
 
         public void PutArray(short[] value)
         {
-            PutArray(value, 2);
+            PutArray<short>(value);
         }
 
         public void PutArray(bool[] value)
         {
-            PutArray(value, 1);
+            PutArray<bool>(value);
         }
 
         public void PutArray(string[] value)
@@ -343,48 +406,91 @@ namespace LiteNetLib.Utils
 
         public void Put(string value)
         {
-            if (string.IsNullOrEmpty(value))
-            {
-                Put(0);
-                return;
-            }
-
-            //put bytes count
-            int bytesCount = Encoding.UTF8.GetByteCount(value);
-            if (_autoResize)
-                ResizeIfNeed(_position + bytesCount + 4);
-            Put(bytesCount);
-
-            //put string
-            Encoding.UTF8.GetBytes(value, 0, value.Length, _data, _position);
-            _position += bytesCount;
+            Put(value.AsSpan());
         }
 
-        public void Put(string value, int maxLength)
+        public unsafe void Put(string value, int maxLength)
         {
-            if (string.IsNullOrEmpty(value))
+            if (maxLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(maxLength), maxLength, "Max Length less than 0");
+
+            ReadOnlySpan<char> valueSpan = value.AsSpan();
+
+            if (valueSpan.Length > maxLength)
+            {
+                valueSpan = valueSpan.Slice(0, maxLength);
+            }
+
+            Put(valueSpan);
+        }
+
+        public unsafe void Put(ReadOnlySpan<char> value)
+        {
+            if (value.IsEmpty)
             {
                 Put(0);
                 return;
             }
 
-            int length = value.Length > maxLength ? maxLength : value.Length;
+            Span<byte> dataSpan = _data.AsSpan(_position);
+            var encoding = Encoding.UTF8;
 
-            int totalBytesCount = Encoding.UTF8.GetMaxByteCount(length); //gets max length irrespective of actual length
+            int requiredBytesCount;
 
             if (_autoResize)
-                ResizeIfNeed(_position + totalBytesCount + 4);
+            {
+                int totalBytesCount = encoding.GetMaxByteCount(value.Length); //gets max length irrespective of actual length
 
-            int countPosition = _position; //save position where length needs to be stored
-            _position += 4;
+                ResizeIfNeed(_position + sizeof(int) + totalBytesCount);
 
-            int requiredBytesCount = Encoding.UTF8.GetBytes(value, 0, length, _data, _position); //put string here
-            int positionAfterWrite = _position + requiredBytesCount; //position where string data ends
+                fixed (char* pInput = value)
+                fixed (byte* pOutput = dataSpan)
+                {
+                    requiredBytesCount = encoding.GetBytes(pInput, value.Length, pOutput + 4, dataSpan.Length - 4); // convert string to target
+                }
 
-            _position = countPosition; //go to position where we need to write int value
+                BinaryPrimitives.WriteInt32LittleEndian(dataSpan, requiredBytesCount);
+            }
+            else
+            {
+                fixed (char* pInput = value)
+                {
+                    requiredBytesCount = encoding.GetByteCount(pInput, value.Length);
 
-            Put(requiredBytesCount); //put length of substring
-            _position = positionAfterWrite; //reset position to final position
+                    if (_data.Length < _position + sizeof(int) + requiredBytesCount)
+                    {
+                        throw new InsufficientMemoryException();
+                    }
+
+                    BinaryPrimitives.WriteInt32LittleEndian(dataSpan, requiredBytesCount);
+
+                    fixed (byte* pOutput = dataSpan)
+                    {
+                        encoding.GetBytes(pInput, value.Length, pOutput + sizeof(int), dataSpan.Length - sizeof(int));
+                    }
+                }
+            }
+
+            _position += sizeof(int) + requiredBytesCount;
+        }
+
+        /// <summary>
+        /// Write a string builder as a normal string
+        /// </summary>
+        /// <param name="builder"></param>
+        public void Put(StringBuilder builder)
+        {
+            var arr = ArrayPool<char>.Shared.Rent(builder.Length);
+            try
+            {
+                builder.CopyTo(0, arr, 0, builder.Length);
+
+                Put(arr.AsSpan(0, builder.Length));
+            }
+            finally
+            {
+                ArrayPool<char>.Shared.Return(arr);
+            }
         }
 
         public void Put<T>(T obj) where T : INetSerializable
