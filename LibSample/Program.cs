@@ -74,7 +74,14 @@ namespace LibSample
 
         private static void WriteAndClean(StringBuilder sb)
         {
+#if NET5_0_OR_GREATER
+            foreach (var chunk in sb.GetChunks())
+            {
+                Console.Out.Write(chunk.Span);
+            }
+#else
             Console.WriteLine(sb.ToString());
+#endif
             sb.Clear();
         }
 

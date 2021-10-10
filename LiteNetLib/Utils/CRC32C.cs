@@ -18,11 +18,11 @@ namespace LiteNetLib.Utils
 
         static CRC32C()
         {
-#if NETCOREAPP3_0_OR_GREATER || NETCOREAPP3_1 || NET5_0
+#if NETCOREAPP3_0_OR_GREATER
             if (Sse42.IsSupported)
                 return;
 #endif
-#if NET5_0_OR_GREATER || NET5_0
+#if NET5_0_OR_GREATER
             if (Crc32.IsSupported)
                 return;
 #endif
