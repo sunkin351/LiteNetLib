@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -57,6 +58,33 @@ namespace LiteNetLib.Tests
 
             Assert.AreEqual(1, server.ConnectedPeersCount);
             Assert.AreEqual(1, client.ConnectedPeersCount);
+        }
+
+        [Test, Timeout(TestTimeout)]
+        public void ConnectionDualMode()
+        {
+            var listener = new EventBasedNetListener();
+            var server = new NetManager(listener, new Crc32cLayer());
+            server.IPv6Mode = IPv6Mode.DualMode;
+            server.Start(DefaultPort);
+
+            listener.ConnectionRequestEvent += request => request.AcceptIfKey(DefaultAppKey);
+
+            var client1 = ManagerStack.Client(1);
+            var client2 = ManagerStack.Client(2);
+            client1.Connect("127.0.0.1", DefaultPort, DefaultAppKey);
+            client2.Connect("::1", DefaultPort, DefaultAppKey);
+
+            while (server.ConnectedPeersCount != 2 || client1.ConnectedPeersCount != 1 || client2.ConnectedPeersCount != 1)
+            {
+                Thread.Sleep(15);
+                server.PollEvents();
+            }
+
+            Assert.AreEqual(2, server.ConnectedPeersCount);
+            Assert.AreEqual(1, client1.ConnectedPeersCount);
+            Assert.AreEqual(1, client2.ConnectedPeersCount);
+            server.Stop(false);
         }
 
         [Test, Timeout(TestTimeout)]
@@ -120,7 +148,7 @@ namespace LiteNetLib.Tests
                 arr[testSize - 1] = 254;
                 peer.SendWithDeliveryEvent(arr, 0, DeliveryMethod.ReliableUnordered, testData);
             };
-            ManagerStack.ServerListener(1).NetworkReceiveEvent += (peer, reader, method) =>
+            ManagerStack.ServerListener(1).NetworkReceiveEvent += (peer, reader, channel, method) =>
             {
                 Assert.AreEqual(testSize, reader.UserDataSize);
                 Assert.AreEqual(196, reader.RawData[reader.UserDataOffset]);
@@ -557,7 +585,7 @@ namespace LiteNetLib.Tests
                     }
                 }
             };
-            ManagerStack.ServerListener(1).NetworkReceiveEvent += (peer, reader, method) =>
+            ManagerStack.ServerListener(1).NetworkReceiveEvent += (peer, reader, channel, method) =>
             {
                 Assert.AreEqual((DeliveryMethod)reader.GetByte(), method);
                 messagesReceived++;
@@ -708,7 +736,7 @@ namespace LiteNetLib.Tests
             var dataStack = new Stack<byte[]>(clientCount);
 
             ManagerStack.ClientForeach(
-                (i, manager, l) => l.NetworkReceiveEvent += (peer, reader, type) => dataStack.Push(reader.GetRemainingBytes()));
+                (i, manager, l) => l.NetworkReceiveEvent += (peer, reader, channel, type) => dataStack.Push(reader.GetRemainingBytes()));
 
             var data = Encoding.Default.GetBytes("TextForTest");
             server.SendToAll(data, DeliveryMethod.ReliableUnordered);

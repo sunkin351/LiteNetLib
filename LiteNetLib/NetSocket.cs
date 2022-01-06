@@ -92,18 +92,13 @@ namespace LiteNetLib
 #if UNITY_SWITCH
                 return 0;
 #else
-                if (_udpSocketv4.AddressFamily == AddressFamily.InterNetworkV6)
-                    return (short)_udpSocketv4.GetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.HopLimit);
                 return _udpSocketv4.Ttl;
 #endif
             }
             set
             {
 #if !UNITY_SWITCH
-                if (_udpSocketv4.AddressFamily == AddressFamily.InterNetworkV6)
-                    _udpSocketv4.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.HopLimit, value);
-                else
-                    _udpSocketv4.Ttl = value;
+                _udpSocketv4.Ttl = value;
 #endif
             }
         }
@@ -166,6 +161,7 @@ namespace LiteNetLib
                 case SocketError.ConnectionReset:
                 case SocketError.MessageSize:
                 case SocketError.TimedOut:
+                case SocketError.NetworkReset:
                     //NetDebug.Write($"[R]Ignored error: {(int)ex.SocketErrorCode} - {ex}");
                     break;
                 default:
@@ -416,11 +412,7 @@ namespace LiteNetLib
 
                 if (ipv6Mode == IPv6Mode.DualMode)
                 {
-                    try
-                    {
-                        //Disable IPv6 only mode
-                        socket.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName)27, false);
-                    }
+                    try { socket.DualMode = true; }
                     catch(Exception e)
                     {
                         NetDebug.WriteError($"[B]Bind exception (dualmode setting): {e}");
@@ -428,10 +420,7 @@ namespace LiteNetLib
                 }
                 else if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
                 {
-                    try
-                    {
-                        socket.DontFragment = true;
-                    }
+                    try { socket.DontFragment = true; }
                     catch (SocketException e)
                     {
                         NetDebug.WriteError($"[B]DontFragment error: {e.SocketErrorCode}");
@@ -473,7 +462,7 @@ namespace LiteNetLib
                             try
                             {
                                 //Set IPv6Only
-                                socket.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName)27, true);
+                                socket.DualMode = false;
                                 socket.Bind(ep);
                             }
                             catch (SocketException ex)

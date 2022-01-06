@@ -79,21 +79,8 @@ namespace LiteNetLib.Utils
         {
             if (_data.Length < newSize)
             {
-                Resize(newSize);
+                Array.Resize(ref _data, Math.Max(newSize, _data.Length * 2));
             }
-        }
-
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private void Resize(int newSize)
-        {
-#if NETCOREAPP3_1_OR_GREATER
-            int newLen = 1 << (sizeof(uint) * 8 - BitOperations.LeadingZeroCount((uint)newSize - 1));
-#else
-            int newLen = _data.Length;
-            while (newLen < newSize)
-                newLen *= 2;
-#endif
-            Array.Resize(ref _data, newLen);
         }
 
         public void Reset(int size)
@@ -295,13 +282,7 @@ namespace LiteNetLib.Utils
 
         public void Put(bool value)
         {
-            if (_autoResize)
-            {
-                ResizeIfNeed(_position + 1);
-            }
-
-            _data[_position] = (byte)(value ? 1 : 0);
-            _position++;
+            Put((byte)(value ? 1 : 0));
         }
 
         private void PutArray<T>(T[] arr) where T: unmanaged

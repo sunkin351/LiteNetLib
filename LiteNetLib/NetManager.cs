@@ -81,6 +81,7 @@ namespace LiteNetLib
         public DisconnectReason DisconnectReason;
         public ConnectionRequest ConnectionRequest;
         public DeliveryMethod DeliveryMethod;
+        public byte ChannelNumber;
         public readonly NetPacketReader DataReader;
 
         public NetEvent(NetManager manager)
@@ -569,6 +570,7 @@ namespace LiteNetLib
             DisconnectReason disconnectReason = DisconnectReason.ConnectionFailed,
             ConnectionRequest connectionRequest = null,
             DeliveryMethod deliveryMethod = DeliveryMethod.Unreliable,
+            byte channelNumber = 0,
             NetPacket readerSource = null,
             object userData = null)
         {
@@ -598,6 +600,7 @@ namespace LiteNetLib
             evt.DisconnectReason = disconnectReason;
             evt.ConnectionRequest = connectionRequest;
             evt.DeliveryMethod = deliveryMethod;
+            evt.ChannelNumber = channelNumber;
             evt.UserData = userData;
 
             if (unsyncEvent || _manualMode)
@@ -630,7 +633,7 @@ namespace LiteNetLib
                     _netEventListener.OnPeerDisconnected(evt.Peer, info);
                     break;
                 case NetEvent.EType.Receive:
-                    _netEventListener.OnNetworkReceive(evt.Peer, evt.DataReader, evt.DeliveryMethod);
+                    _netEventListener.OnNetworkReceive(evt.Peer, evt.DataReader, evt.ChannelNumber, evt.DeliveryMethod);
                     break;
                 case NetEvent.EType.ReceiveUnconnected:
                     _netEventListener.OnNetworkReceiveUnconnected(evt.RemoteEndPoint, evt.DataReader, UnconnectedMessageType.BasicMessage);
@@ -848,8 +851,8 @@ namespace LiteNetLib
                 if (rejectData != null && length > 0)
                 {
                     var shutdownPacket = NetPacketPool.GetWithProperty(PacketProperty.Disconnect, length);
-                    shutdownPacket.ConnectionNumber = request.ConnectionNumber;
-                    FastBitConverter.GetBytes(shutdownPacket.RawData, 1, request.ConnectionTime);
+                    shutdownPacket.ConnectionNumber = request.InternalPacket.ConnectionNumber;
+                    FastBitConverter.GetBytes(shutdownPacket.RawData, 1, request.InternalPacket.ConnectionTime);
                     if (shutdownPacket.Size >= NetConstants.PossibleMtu[0])
                         NetDebug.WriteError("[Peer] Disconnect additional data size more than MTU!");
                     else
@@ -868,14 +871,14 @@ namespace LiteNetLib
                 else if (request.Result == ConnectionRequestResult.Reject)
                 {
                     netPeer = new NetPeer(this, request.RemoteEndPoint, GetNextPeerId());
-                    netPeer.Reject(request.ConnectionTime, request.ConnectionNumber, rejectData, start, length);
+                    netPeer.Reject(request.InternalPacket, rejectData, start, length);
                     AddPeer(netPeer);
                     _peersLock.ExitUpgradeableReadLock();
                     NetDebug.Write(NetLogLevel.Trace, "[NM] Peer connect reject.");
                 }
                 else //Accept
                 {
-                    netPeer = new NetPeer(this, request.RemoteEndPoint, GetNextPeerId(), request.ConnectionTime, request.ConnectionNumber);
+                    netPeer = new NetPeer(this, request, GetNextPeerId());
                     AddPeer(netPeer);
                     _peersLock.ExitUpgradeableReadLock();
                     CreateEvent(NetEvent.EType.Connect, netPeer);
@@ -900,9 +903,6 @@ namespace LiteNetLib
             NetPeer netPeer,
             NetConnectRequestPacket connRequest)
         {
-            byte connectionNumber = connRequest.ConnectionNumber;
-            ConnectionRequest req;
-
             //if we have peer
             if (netPeer != null)
             {
@@ -936,7 +936,7 @@ namespace LiteNetLib
                 //ConnectRequestResult.NewConnection
                 //Set next connection number
                 if(processResult != ConnectRequestResult.P2PLose)
-                    connectionNumber = (byte)((netPeer.ConnectionNum + 1) % NetConstants.MaxConnectionNumber);
+                    connRequest.ConnectionNumber = (byte)((netPeer.ConnectionNum + 1) % NetConstants.MaxConnectionNumber);
                 //To reconnect peer
             }
             else
@@ -944,6 +944,7 @@ namespace LiteNetLib
                 NetDebug.Write("ConnectRequest Id: {0}, EP: {1}", connRequest.ConnectionTime, remoteEndPoint);
             }
 
+            ConnectionRequest req;
             lock (_requestsDict)
             {
                 if (_requestsDict.TryGetValue(remoteEndPoint, out req))
@@ -951,12 +952,7 @@ namespace LiteNetLib
                     req.UpdateRequest(connRequest);
                     return;
                 }
-                req = new ConnectionRequest(
-                    connRequest.ConnectionTime,
-                    connectionNumber,
-                    connRequest.Data,
-                    remoteEndPoint,
-                    this);
+                req = new ConnectionRequest(remoteEndPoint, connRequest, this);
                 _requestsDict.Add(remoteEndPoint, req);
             }
             NetDebug.Write("[NM] Creating request event: " + connRequest.ConnectionTime);
@@ -1128,7 +1124,7 @@ namespace LiteNetLib
             }
         }
 
-        internal void CreateReceiveEvent(NetPacket packet, DeliveryMethod method, int headerSize, NetPeer fromPeer)
+        internal void CreateReceiveEvent(NetPacket packet, DeliveryMethod method, byte channelNumber, int headerSize, NetPeer fromPeer)
         {
             NetEvent evt;
             lock (_eventLock)
@@ -1143,6 +1139,7 @@ namespace LiteNetLib
             evt.DataReader.SetSource(packet, headerSize);
             evt.Peer = fromPeer;
             evt.DeliveryMethod = method;
+            evt.ChannelNumber = channelNumber;
             if (UnsyncedEvents || UnsyncedReceiveEvent || _manualMode)
             {
                 ProcessEvent(evt);
