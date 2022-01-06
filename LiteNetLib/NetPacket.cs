@@ -210,22 +210,26 @@ namespace LiteNetLib
 
         public static NetPacket Make(NetDataWriter connectData, SocketAddress addressBytes, long connectTime, int localId)
         {
-            return Make(connectData.DataSpan, addressBytes, connectId);
+            return Make(connectData.DataSpan, addressBytes, connectTime, localId);
         }
 
-        public static NetPacket Make(ReadOnlySpan<byte> connectData, SocketAddress addressBytes, long connectId)
+        public static NetPacket Make(ReadOnlySpan<byte> connectData, SocketAddress addressBytes, long connectTime, int localId)
         {
             //Make initial packet
             var packet = new NetPacket(PacketProperty.ConnectRequest, connectData.Length + addressBytes.Size);
 
             //Add data
+
             FastBitConverter.GetBytes(packet.RawData, 1, NetConstants.ProtocolId);
             FastBitConverter.GetBytes(packet.RawData, 5, connectTime);
             FastBitConverter.GetBytes(packet.RawData, 13, localId);
+
             packet.RawData[HeaderSize-1] = (byte)addressBytes.Size;
+
             for (int i = 0; i < addressBytes.Size; i++)
                 packet.RawData[HeaderSize + i] = addressBytes[i];
-            Buffer.BlockCopy(connectData.Data, 0, packet.RawData, HeaderSize + addressBytes.Size, connectData.Length);
+
+            connectData.CopyTo(packet.RawData.AsSpan(HeaderSize + addressBytes.Size));
             return packet;
         }
     }

@@ -2,8 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net6.0;net5.0;netcoreapp3.1</TargetFrameworks>
-    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net6.0;net5.0;net471;netcoreapp3.1</TargetFrameworks>
+    <TargetFramework>net6.0</TargetFramework>
     <ApplicationIcon />
     <StartupObject />
   </PropertyGroup>
